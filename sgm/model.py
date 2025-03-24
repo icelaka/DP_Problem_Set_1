@@ -7,7 +7,7 @@ This code sets up the model.
 """
 
 #%% Imports from Python
-from numpy import count_nonzero,exp,expand_dims,linspace,log,tile
+from numpy import count_nonzero,exp,expand_dims,linspace,log,tile,maximum
 from scipy import stats
 from types import SimpleNamespace
 
@@ -84,12 +84,8 @@ class planner():
         # Trade openness parameters
         par.trade_base = 0.3 # Baseline trade openness.
         par.trade_rho = 0.85 # Persistence of trade openness.
-        par.trade_trend = 0.11 # Trend in trade openness.
         par.trade_sigma = 0.05 # Std. dev of trade openness shocks.
         par.trade_lambda = 0.2 # Elasticity
-        par.trade_trend_rate = 0.05
-        par.trade_trend_steady = 0.0212
-        # par.prod_base = 1.0 # Baseline trade openness
         
         # Set up capital grid.
         par.kss = (par.alpha /((1.0/par.beta)-1+par.delta))**(1.0/(1.0-par.alpha)) # Steady state capital.
@@ -127,7 +123,21 @@ class planner():
         Agrid,pmat = tauchen(par.mu,par.rho,par.sigma_eps,par.Alen,par.m) # Tauchen's Method to discretize the AR(1) process for log productivity.
         par.Agrid = exp(Agrid) # The AR(1) is in logs so exponentiate it to get A.
         par.pmat = pmat # Transition matrix.
-    
+
+        par.Tlen = 7  # Grid size for T
+        par.m_T = 3.0  # Tauchen scaling for T grid
+        
+        T_grid_tauchen, T_trans = tauchen(
+            mu=0.0,  # Mean of T (no drift)
+            rho=par.trade_rho,
+            sigma=par.trade_sigma,
+            N=par.Tlen,
+            m=par.m_T,
+        )
+        
+        par.Tgrid = T_grid_tauchen  # Grid for T (logged)
+        par.T_trans = T_trans  # Transition matrix for T
+        
         # Utility function.
         par.util = util
         
@@ -147,7 +157,7 @@ class planner():
 
 #%% CRRA Utility Function.
 def util(c,sigma):
-
+    c = maximum(c, 1e-100)
     # CRRA utility
     if sigma == 1:
         u = log(c) # Log utility.

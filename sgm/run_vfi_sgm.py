@@ -30,15 +30,13 @@ benevolent_dictator = planner()
 benevolent_dictator.setup(
     main=main,
     figout=figout,
-    beta=0.96,
+    beta=0.82,
     sigma=1.25,
     T = 100,
     trade_base=0.29,  # Baseline trade openness.
-    trade_rho=0.793,  # Persistence
-    trade_sigma=0.3,  # Std. dev
-    trade_lambda=0.347,  # Elasticity
-    trade_trend_rate = 0.005,
-    trade_trend_steady = 1.12,
+    trade_rho=0.825,  # Persistence
+    trade_sigma=0.2,  # Std. dev
+    trade_lambda=0.125,  # Elasticity
 )  # You can set the parameters here or use the defaults.
 
 # Solve the model.

@@ -2,116 +2,110 @@
 
 simulate.py
 -----------
-This code simulates the model.
+This code simulates the model with trade openness \( T_t \) as a state variable.
 
 """
 
-#%% Imports from Python
-from numpy import cumsum,linspace,squeeze,where,zeros
-from numpy.random import choice,rand,seed
+# %% Imports from Python
+from numpy import cumsum, linspace, squeeze, where, zeros, argmin
+from numpy.random import choice, rand, seed
 from numpy.linalg import matrix_power
 from types import SimpleNamespace
-from numpy.random import normal
 
-#%% Simulate the model.
+
+# %% Simulate the model.
 def grow_economy(myClass):
-    '''
-    
-    This function simulates the stochastic growth model.
-    
-    Input:
-        myClass : Model class with parameters, grids, utility function, and policy functions.
-        
-    '''
+    """
+    Simulate the model with discretized \( T_t \).
+    """
 
-    print('\n--------------------------------------------------------------------------------------------------')
-    print('Simulate the Model')
-    print('--------------------------------------------------------------------------------------------------\n')
-    
-    # Namespace for simulation.
-    setattr(myClass,'sim',SimpleNamespace())
+    print("\n--------------------------------------------------------------")
+    print("Simulating the Model (3D State Space: k, A, T)")
+    print("--------------------------------------------------------------\n")
+
+    # Namespace for simulation results
+    setattr(myClass, "sim", SimpleNamespace())
     sim = myClass.sim
 
-    # Model parameters, grids and functions.
-    
-    par = myClass.par # Parameters.
-    sol = myClass.sol # Policy functions.
+    # Model parameters and policy functions
+    par = myClass.par
+    sol = myClass.sol
+    kgrid = par.kgrid
+    Agrid = par.Agrid[0]
+    Tgrid = par.Tgrid[0]  # Trade openness grid
+    klen, Alen, Tlen = par.klen, par.Alen, par.Tlen
 
-    sigma = par.sigma # CRRA.
-    util = par.util # Utility function.
-    seed_sim = par.seed_sim # Seed for simulation.
+    # Policy functions (3D: k, A, T)
+    kpol = sol.k  # Shape: (klen, Alen, Tlen)
+    cpol = sol.c
+    ypol = sol.y
 
-    klen = par.klen # Capital grid size.
-    Alen = par.Alen # Productivity grid size.
-    kgrid = par.kgrid # Capital today (state).
-    Agrid = par.Agrid[0] # Productivity today (state).
-    pmat = par.pmat # Productivity today (state).
-    
-    yout = sol.y # Production function.
-    kpol = sol.k # Policy function for capital.
-    cpol = sol.c # Policy function for consumption.
-    ipol = sol.i # Policy function for investment.
+    # Transition matrices for A and T
+    pmat = par.pmat  # Productivity transitions
+    T_trans = par.T_trans  # Trade openness transitions
+    T_trans_cdf = cumsum(T_trans, axis=1)  # CDF for T transitions
 
-    T = par.T # Time periods.
-    Asim = zeros(par.T*2) # Container for simulated productivity.
-    ysim = zeros(par.T*2) # Container for simulated output.
-    ksim = zeros(par.T*2) # Container for simulated capital stock.
-    Tsim = zeros(par.T * 2)  # Container for simulated trade openness
-    csim = zeros(par.T*2) # Container for simulated consumption.
-    isim = zeros(par.T*2) # Container for simulated investment.
-    usim = zeros(par.T*2) # Container for simulated utility.
-            
-    # Begin simulation.
-    
-    seed(seed_sim)
+    # Simulation parameters
+    T_total = par.T * 2  # Total periods (including burn-in)
+    seed(par.seed_sim)
 
-    pmat0 = matrix_power(pmat,1000)
-    pmat0 = pmat0[0,:] # % Stationary distribution.
-    cmat = cumsum(par.pmat,axis=1) # CDF matrix.
+    # Initialize containers
+    Asim = zeros(T_total)  # Productivity
+    Tsim = zeros(T_total)  # Trade openness
+    ksim = zeros(T_total)  # Capital
+    ysim = zeros(T_total)  # Output
+    csim = zeros(T_total)  # Consumption
+    isim = zeros(T_total)  # Investment
+    usim = zeros(T_total)  # Utility
 
-    A0_ind = choice(linspace(0,Alen,Alen,endpoint=False,dtype=int),1,p=pmat0) # Index for initial productivity.
-    k0_ind = choice(linspace(0,klen,klen,endpoint=False,dtype=int),1) # Index for initial capital stock.
+    # Draw initial states (A, T) from stationary distribution
+    pmat0_A = matrix_power(pmat, 1000)[0, :]  # Stationary dist for A
+    pmat0_T = matrix_power(T_trans, 1000)[0, :]  # Stationary dist for T
 
-    Tsim[0] = par.trade_base
-    ysim[0] = (
-        Asim[0]
-        * (1 + par.trade_lambda * Tsim[0])
-        * yout[k0_ind, A0_ind]
-        / (Agrid[A0_ind])
-    )
-    csim[0] = cpol[k0_ind,A0_ind] # Consumption in period 1 given k0 and A0.
-    ksim[0] = kpol[k0_ind,A0_ind] # Capital choice for period 2 given k0.
-    isim[0] = ipol[k0_ind,A0_ind] # Investment in period 1 given k0 and A0.
-    usim[0] = util(csim[0],sigma) # Utility in period 1 given k0 and A0.
+    A0_ind = choice(range(Alen), p=pmat0_A)
+    T0_ind = choice(range(Tlen), p=pmat0_T)
+    k0_ind = argmin(abs(kgrid - par.kss))  # Start near steady state
 
-    A1_ind = where(rand(1)<=squeeze(cmat[A0_ind,:])) # Draw productivity for next period.
-    At_ind = A1_ind[0][0]
+    # Period 0
+    Asim[0] = Agrid[A0_ind]
+    Tsim[0] = Tgrid[T0_ind]  # Initialize T_t using discretized grid
+    ksim[0] = kpol[k0_ind, A0_ind, T0_ind]
+    ysim[0] = ypol[k0_ind, A0_ind, T0_ind]
+    csim[0] = cpol[k0_ind, A0_ind, T0_ind]
+    isim[0] = ksim[0] - (1 - par.delta) * kgrid[k0_ind]
+    usim[0] = par.util(csim[0], par.sigma)
 
-    # Simulate endogenous variables.
+    # Track indices for A and T
+    At_ind = A0_ind
+    Tt_ind = T0_ind
 
-    for j in range(1,T*2): # Time loop.
-        kt_ind = where(ksim[j-1]==kgrid) # Capital choice in the previous period is the state today. Find where the latter is on the grid.
-        Tsim[j] = (
-            (1 + par.trade_trend_rate) * Tsim[j - 1]
-            + par.trade_rho * (par.trade_trend_steady - Tsim[j - 1])
-            + normal(0, par.trade_sigma)
-        )
-        # Tsim[j] = max(Tsim[j], 0.)
-        print(Tsim[j])
-        Asim[j] = Agrid[At_ind] # Productivity in period t.
-        ysim[j] = Asim[j] * (1 + par.trade_lambda * Tsim[j]) * yout[kt_ind, At_ind]
-        csim[j] = cpol[kt_ind,At_ind] # Consumption in period t.
-        ksim[j] = kpol[kt_ind,At_ind] # Capital stock for period t+1.
-        isim[j] = ipol[kt_ind,At_ind] # Investment in period t.
-        usim[j] = util(csim[j],sigma) # Utility in period t.
-        A1_ind = where(rand(1)<=squeeze(cmat[At_ind,:])) # Draw next state.
-        At_ind = A1_ind[0][0] # State next period.
+    # Simulation loop
+    for j in range(1, T_total):
+        # Find current k index (closest grid point)
+        kt_ind = argmin(abs(kgrid - ksim[j - 1]))
 
-    # Burn the first half.
-    sim.Asim = Asim[T:2*T+1] # Simulated productivity.
-    sim.Tsim = Tsim[T : 2 * T + 1]  # Simulated trade openness
-    sim.ysim = ysim[T:2*T+1] # Simulated output.
-    sim.ksim = ksim[T:2*T+1] # Simulated capital choice.
-    sim.csim = csim[T:2*T+1] # Simulated consumption.
-    sim.isim = isim[T:2*T+1] # Simulated investment.
-    sim.usim = usim[T:2*T+1] # Simulated utility.
+        # Draw next A and T indices using transitions
+        A_rand = rand()
+        At_ind = where(A_rand <= cumsum(pmat[At_ind, :]))[0][0]
+
+        T_rand = rand()
+        Tt_ind = where(T_rand <= T_trans_cdf[Tt_ind, :])[0][0]
+
+        # Update states
+        Asim[j] = Agrid[At_ind]
+        Tsim[j] = Tgrid[Tt_ind]  # Update T_t from grid
+        ksim[j] = kpol[kt_ind, At_ind, Tt_ind]
+        ysim[j] = ypol[kt_ind, At_ind, Tt_ind]
+        csim[j] = cpol[kt_ind, At_ind, Tt_ind]
+        isim[j] = ksim[j] - (1 - par.delta) * kgrid[kt_ind]
+        usim[j] = par.util(csim[j], par.sigma)
+
+    # Burn first half
+    T_burn = par.T
+    sim.Asim = Asim[T_burn:]
+    sim.Tsim = Tsim[T_burn:]  # Simulated trade openness
+    sim.ksim = ksim[T_burn:]
+    sim.ysim = ysim[T_burn:]
+    sim.csim = csim[T_burn:]
+    sim.isim = isim[T_burn:]
+    sim.usim = usim[T_burn:]
